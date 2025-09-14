@@ -7,9 +7,8 @@ import numpy as np
 
 class Tokenizer:
 
-    def __init__(self, prompt):
+    def __init__(self):
         self.tokenizer = tokenizer
-        self.prompt = prompt
         self.text = text
 
     def decode_word(self, token_id):
