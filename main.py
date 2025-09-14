@@ -31,7 +31,7 @@ class Main:
         # ---------------------------------------------------------------
         # Actual training loop Begins here
         # ---------------------------------------------------------------
-        x = self.W_e # Running variable
+        x = self.W_e  # Running variable
         for _ in range(self.num_layers):
             # attention = SelfAttention(self.W_e)
             # attn_out = attention.attention()
@@ -46,7 +46,6 @@ class Main:
 
             mlp_out = self.perceptron.forward(x)
             x = x + mlp_out  # residual connection
-
 
         # ---------------------------------------------------------------
         # Training loop ends here
@@ -63,10 +62,19 @@ class Main:
         print(f'probs shape: {probabilities.shape}')
 
         next_id = torch.multinomial(probabilities, num_samples=1).item()
-
         next_token = self.tokenizer.decode_word(next_id)
 
         print("next token:", next_token)
+
+        topk = 10
+        probs, indices = torch.topk(probabilities, k=topk)
+
+        print("\nTop 10 predictions:")
+        for i in range(topk):
+            token_id = indices[i].item()
+            token = self.tokenizer.decode_word(token_id)
+            prob = probs[i].item()
+            print(f"{token:15s}  {prob:.4f}")
 
 
 if __name__ == '__main__':
