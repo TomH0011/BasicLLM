@@ -9,47 +9,51 @@ from Loss import CrossEntropyLoss
 class Main:
 
     def __init__(self):
-        self.W_e = []
+        self.embedding_vectors = []
         self.num_layers = num_layers
         self.tokenizer = Tokenizer()
         self.embedding = Embedding()
-        self.perceptron = MLP()
+        self.perceptron_layers = [MLP() for _ in range(num_layers)]
+        self.attention_layers = []
         self.unembed = Unembed()
         self.loss = CrossEntropyLoss()
         self.final_probabilities = None
 
     def main(self):
         tokens, input_ids = self.tokenizer.encode_input()
-        # print(f'tokens: {tokens} id: {id}')
 
         for id in input_ids:
             vec = self.embedding.get_embedding_vector(id)
-            vec = torch.tensor(vec, dtype=torch.float32, requires_grad=True)  # convert NumPy → Tensor
-            self.W_e.append(vec)
+            self.embedding_vectors.append(vec)
+        self.embedding_vectors = torch.stack(
+            self.embedding_vectors)  # Turn into tensor with shape (seq_len, embedding_dim)
 
-        self.W_e = torch.stack(self.W_e)  # Turn into tensor with shape (seq_len, embedding_dim)
-        print(f'number of embedding vectors in weights_e: {len(self.W_e)}')
-        print(f'W_e shape: {self.W_e.shape}')
+        print(f'number of embedding vectors in weights_e: {len(self.embedding_vectors)}')
+        print(f'W_e shape: {self.embedding_vectors.shape}')
 
-        # ---------------------------------------------------------------
-        # Actual training loop Begins here
-        # ---------------------------------------------------------------
-        x = self.W_e  # Running variable
-        for _ in range(self.num_layers):
+        embeddings = self.embedding_vectors
+        self.attention_layers = []
+        mlp_outputs = []
 
-            attention = SelfAttention(x)
+        # -------------------------- forward pass --------------------------
+        embeddings = self.embedding_vectors  # Running variable
+        for layer_idx in range(self.num_layers):
+            # Self-Attention
+            attention = SelfAttention(embeddings)
+            self.attention_layers.append(attention)
             attn_out = attention.attention()
-            x = x + attn_out  # residual connection
+            embeddings = embeddings + attn_out  # residual
 
-            mlp_out = self.perceptron.forward(x)
-            x = x + mlp_out  # residual connection
+            # MLP
+            mlp = self.perceptron_layers[layer_idx]
+            mlp_out = mlp.forward(embeddings)
+            mlp_outputs.append(mlp_out)
+            embeddings = embeddings + mlp_out  # residual
 
-        # ---------------------------------------------------------------
-        # Training loop ends here
-        # ---------------------------------------------------------------
-        print(f'mlp.res shape: {x.shape}')
+        print(f'mlp.res shape: {embeddings.shape}')
 
-        logits = self.unembed.unembed(x)
+        # Unembedding
+        logits = self.unembed.unembed(embeddings)
         print(f'logits shape: {logits.shape}')
 
         # Calculate Loss
@@ -58,21 +62,36 @@ class Main:
         loss = self.loss.calulate_cross_entropy_loss_from_logits(logits, target_ids)
         print(f'The calculated loss is: {loss}')
 
+        # -------------------------- Backward pass/Back propagation --------------------------
+        grad_logits = self.loss.backward()
+        grad_embeddings = self.unembed.backward(grad_logits)
+
+        # Loop backward through layers
+        for layer_idx in reversed(range(self.num_layers)):
+            # Backprop through MLP
+            mlp = self.perceptron_layers[layer_idx]
+            grad_MLP_input = grad_embeddings  # residual gradient
+            grad_embeddings = mlp.backward(grad_MLP_input)
+
+            # Backprop through Attention
+            attention = self.attention_layers[layer_idx]
+            grad_attn_input = grad_embeddings  # residual gradient
+            grad_embeddings = attention.backward(grad_attn_input)
+
+        # Backprop into embeddings
+        self.embedding.backward(grad_embeddings)
+
+        # -------------------------- Make Predictions --------------------------
         # Want probs to sum to 1
         probabilities = torch.softmax(logits, dim=-1)
         self.final_probabilities = probabilities[-1]
-        print(f'probs shape: {probabilities.shape}')
-
-        # Take all probabilities of final vector and decode it into a word to predict
         next_id = torch.multinomial(self.final_probabilities, num_samples=1).item()
         next_token = self.tokenizer.decode_word(next_id)
-
-        print("next token:", next_token)
+        print("Next token:", next_token)
 
     def show_top_10_predictions(self, topk=10):
         if self.final_probabilities is None:
-            raise ValueError("You must run .main() first to compute probabilities.")
-
+            raise ValueError("Run main() first!")
         probs, indices = torch.topk(self.final_probabilities, k=topk)
         print("\nTop 10 predictions:")
         for i in range(topk):
@@ -86,4 +105,3 @@ if __name__ == '__main__':
     model = Main()
     model.main()
     model.show_top_10_predictions()
-

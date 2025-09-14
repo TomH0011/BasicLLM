@@ -11,4 +11,15 @@ class Unembed:
         self.W_u = torch.randn(self.embedding_dim, self.vocab_size, requires_grad=True) * (1.0 / self.embedding_dim ** 0.5)
 
     def unembed(self, vec_E):
-        return vec_E @ self.W_u
+        self.last_input = vec_E  # store for backward
+        logits = vec_E @ self.W_u
+        return logits
+
+    def backward(self, grad_logits):
+        # Gradients wrt W_u
+        grad_W_u = self.last_input.T @ grad_logits
+        self.W_u.grad = grad_W_u if self.W_u.grad is None else self.W_u.grad + grad_W_u
+
+        # Gradients wrt input embeddings
+        grad_E = grad_logits @ self.W_u.T
+        return grad_E

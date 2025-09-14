@@ -45,11 +45,26 @@ class Embedding:
         self.tokenizer = tokenizer
         self.vocab_size = vocab_size
         self.embedding_dim = embedding_dim
+        self.last_ids = None
 
         # all possible embedding dims
         self.W_e = torch.randn(self.vocab_size, self.embedding_dim, requires_grad=True)
 
-        # For each id in ids, fetches its embedding vector
-
+    # fetches embedding vector for a given id
     def get_embedding_vector(self, ids):
-        return self.W_e[ids]  # shape [len(ids), embedding_dim]
+        # Always convert to list if it's a single int
+        if isinstance(ids, int):
+            self.last_ids = [ids]
+        else:
+            self.last_ids = list(ids)  # make sure it's a list
+        return self.W_e[ids]
+
+    def backward(self, grad_embeddings):
+        if self.W_e.grad is None:
+            self.W_e.grad = torch.zeros_like(self.W_e)
+        # accumulate gradients into W_e
+        for i, idx in enumerate(self.last_ids):
+            # Update corresponding row in W_e
+            if self.W_e.grad is None:
+                self.W_e.grad = torch.zeros_like(self.W_e)
+            self.W_e.grad[idx] += grad_embeddings[i]
