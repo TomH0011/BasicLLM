@@ -16,6 +16,7 @@ class Main:
         self.perceptron = MLP()
         self.unembed = Unembed()
         self.loss = CrossEntropyLoss()
+        self.final_probabilities = None
 
     def main(self):
         tokens, input_ids = self.tokenizer.encode_input()
@@ -23,7 +24,7 @@ class Main:
 
         for id in input_ids:
             vec = self.embedding.get_embedding_vector(id)
-            vec = torch.tensor(vec, dtype=torch.float32)  # convert NumPy → Tensor
+            vec = torch.tensor(vec, dtype=torch.float32, requires_grad=True)  # convert NumPy → Tensor
             self.W_e.append(vec)
 
         self.W_e = torch.stack(self.W_e)  # Turn into tensor with shape (seq_len, embedding_dim)
@@ -48,10 +49,6 @@ class Main:
         # ---------------------------------------------------------------
         print(f'mlp.res shape: {x.shape}')
 
-        # What we will make predictions on
-        # final_vec = x[-1]
-        # print(f'final vector shape: {final_vec.shape}')
-        # logits = self.unembed.unembed(final_vec)
         logits = self.unembed.unembed(x)
         print(f'logits shape: {logits.shape}')
 
@@ -60,19 +57,23 @@ class Main:
         target_ids = torch.tensor(target_ids, dtype=torch.long)
         loss = self.loss.calulate_cross_entropy_loss_from_logits(logits, target_ids)
         print(f'The calculated loss is: {loss}')
+
         # Want probs to sum to 1
         probabilities = torch.softmax(logits, dim=-1)
-        final_probabilities = probabilities[-1]
+        self.final_probabilities = probabilities[-1]
         print(f'probs shape: {probabilities.shape}')
 
-        next_id = torch.multinomial(final_probabilities, num_samples=1).item()
+        # Take all probabilities of final vector and decode it into a word to predict
+        next_id = torch.multinomial(self.final_probabilities, num_samples=1).item()
         next_token = self.tokenizer.decode_word(next_id)
 
         print("next token:", next_token)
 
-        topk = 10
-        probs, indices = torch.topk(final_probabilities, k=topk)
+    def show_top_10_predictions(self, topk=10):
+        if self.final_probabilities is None:
+            raise ValueError("You must run .main() first to compute probabilities.")
 
+        probs, indices = torch.topk(self.final_probabilities, k=topk)
         print("\nTop 10 predictions:")
         for i in range(topk):
             token_id = indices[i].item()
@@ -82,5 +83,7 @@ class Main:
 
 
 if __name__ == '__main__':
-    Main = Main()
-    Main.main()
+    model = Main()
+    model.main()
+    model.show_top_10_predictions()
+
