@@ -9,16 +9,34 @@ class Tokenizer:
 
     def __init__(self):
         self.tokenizer = tokenizer
-        self.text = text
+        self.text = text.strip()
 
+    # Everything except the first word → target text
+    def shift_text_for_target(self):
+        words = self.text.split()
+        return " ".join(words[1:])
+
+    # Everything except the last word → input text
+    def shift_text_for_input(self):
+        words = self.text.split()
+        return " ".join(words[:-1])
     def decode_word(self, token_id):
         return self.tokenizer.decode([token_id], skip_special_tokens=True)
 
-    def encode_prompt(self):
-        tokens = self.tokenizer(self.text, return_tensors='pt')
-        print(f'Number of tokens: {len(tokens[0])}')
-        id = self.tokenizer.encode(self.text)
-        return tokens, id
+    def encode_input(self):
+        input_text = self.shift_text_for_input()
+        tokens = self.tokenizer(input_text, return_tensors="pt")
+        ids = self.tokenizer.encode(input_text)
+        return tokens, ids
+
+    def encode_target(self):
+        target_text = self.shift_text_for_target()
+        tokens = self.tokenizer(target_text, return_tensors="pt")
+        ids = self.tokenizer.encode(target_text)
+        return tokens, ids
+
+
+
 
 
 class Embedding:

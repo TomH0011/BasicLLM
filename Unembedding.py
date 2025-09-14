@@ -10,5 +10,5 @@ class Unembed:
 
         self.W_u = torch.randn(self.embedding_dim, self.vocab_size) * (1.0 / self.embedding_dim ** 0.5)
 
-    def unembed(self, vec_E_n):
-        return vec_E_n @ self.W_u
+    def unembed(self, vec_E):
+        return vec_E @ self.W_u
