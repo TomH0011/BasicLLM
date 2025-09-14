@@ -4,6 +4,7 @@ from Transformer import SelfAttention, MLP
 from Unembedding import Unembed
 from config import num_layers
 from Loss import CrossEntropyLoss
+from optimiser import SGDWithMomentum
 
 
 class Main:
@@ -18,6 +19,7 @@ class Main:
         self.unembed = Unembed()
         self.loss = CrossEntropyLoss()
         self.final_probabilities = None
+        self.params = None
 
     def main(self):
         tokens, input_ids = self.tokenizer.encode_input()
@@ -52,6 +54,9 @@ class Main:
 
         print(f'mlp.res shape: {embeddings.shape}')
 
+        self.params = self.collect_params()
+        self.optimiser = SGDWithMomentum(params=self.params)
+
         # Unembedding
         logits = self.unembed.unembed(embeddings)
         print(f'logits shape: {logits.shape}')
@@ -81,6 +86,11 @@ class Main:
         # Backprop into embeddings
         self.embedding.backward(grad_embeddings)
 
+        # -------------------------- optimiser --------------------------
+
+        self.optimiser.step()
+        self.optimiser.zero_grad()
+
         # -------------------------- Make Predictions --------------------------
         # Want probs to sum to 1
         probabilities = torch.softmax(logits, dim=-1)
@@ -100,6 +110,24 @@ class Main:
             prob = probs[i].item()
             print(f"{token:15s}  {prob:.4f}")
 
+    def collect_params(self):
+        params = []
+
+        # embedding param
+        params.append(self.embedding.W_e)
+
+        # unembedding param
+        params.append(self.unembed.W_u)
+
+        # MLP params
+        for mlp_param in self.perceptron_layers:
+            params.extend([mlp_param.W_up, mlp_param.b_up, mlp_param.W_down, mlp_param.b_down])
+
+        # Attention (all layers)
+        for attn in self.attention_layers:
+            params.extend([attn.W_Q, attn.W_K, attn.W_V, attn.W_O])
+
+        return params
 
 if __name__ == '__main__':
     model = Main()

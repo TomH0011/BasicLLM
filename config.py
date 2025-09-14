@@ -6,7 +6,10 @@ embedding_dim = 128     # Self-explanatory
 d_head = 64             # size of each attention head
 attn_heads = 2          # Number of attention heads
 hidden_dimension = 512  # Hidden dimension for when up-scaling inside the MLP
-num_layers = 16          # number of times the loop goes Attention -> MLP -> Attention
+num_layers = 16         # number of times the loop goes Attention -> MLP -> Attention
+learning_rate = 0.01   # constant of proportionality in optimiser
+momentum = 0.9          # momentum in optimiser
+
 
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 vocab_size = tokenizer.vocab_size
