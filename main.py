@@ -2,12 +2,14 @@ from Embedding import Tokenizer, Embedding
 import torch
 from Transformer import SelfAttention, MLP
 from Predictions import Unembed
+from config import num_layers
 
 
 class Main:
 
     def __init__(self):
         self.W_e = []
+        self.num_layers = num_layers
         self.tokenizer = Tokenizer()
         self.embedding = Embedding()
         self.perceptron = MLP()
@@ -29,21 +31,30 @@ class Main:
         # ---------------------------------------------------------------
         # Actual training loop Begins here
         # ---------------------------------------------------------------
-        attention = SelfAttention(self.W_e)
-        attn_out = attention.attention()
-        attn_res = self.W_e + attn_out
+        x = self.W_e # Running variable
+        for _ in range(self.num_layers):
+            # attention = SelfAttention(self.W_e)
+            # attn_out = attention.attention()
+            # attn_res = self.W_e + attn_out
+            #
+            # mlp_out = self.perceptron.forward(attn_res)
+            # mlp_res = self.W_e + mlp_out
 
-        mlp_out = self.perceptron.forward(attn_res)
-        mlp_res = self.W_e + mlp_out
+            attention = SelfAttention(x)
+            attn_out = attention.attention()
+            x = x + attn_out  # residual connection
 
-        print(f'mlp.res shape: {mlp_res.shape}')
+            mlp_out = self.perceptron.forward(x)
+            x = x + mlp_out  # residual connection
+
 
         # ---------------------------------------------------------------
         # Training loop ends here
         # ---------------------------------------------------------------
+        print(f'mlp.res shape: {x.shape}')
 
         # What we will make predicitons on
-        final_vec = mlp_res[-1]
+        final_vec = x[-1]
         print(f'final vector shape: {final_vec.shape}')
         logits = self.unembed.unembed(final_vec)
         print(f'logits shape: {logits.shape}')
