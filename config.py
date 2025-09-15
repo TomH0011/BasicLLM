@@ -1,4 +1,7 @@
+import torch.cuda
 from transformers import AutoTokenizer
+
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 model_name = "gpt2"  # Only a small model https://huggingface.co/models?num_parameters=min:0,max:1B&sort=trending
 

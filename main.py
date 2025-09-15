@@ -2,7 +2,7 @@ from Embedding import Tokenizer, Embedding
 import torch
 from Transformer import SelfAttention, MLP
 from Unembedding import Unembed
-from config import num_layers
+from config import num_layers, device
 from Loss import CrossEntropyLoss
 from optimiser import SGDWithMomentum
 
@@ -27,8 +27,8 @@ class Main:
         for id in input_ids:
             vec = self.embedding.get_embedding_vector(id)
             self.embedding_vectors.append(vec)
-        self.embedding_vectors = torch.stack(
-            self.embedding_vectors)  # Turn into tensor with shape (seq_len, embedding_dim)
+        # Turn into tensor with shape (seq_len, embedding_dim)
+        self.embedding_vectors = torch.stack(self.embedding_vectors).to(device=device)
 
         print(f'number of embedding vectors in weights_e: {len(self.embedding_vectors)}')
         print(f'W_e shape: {self.embedding_vectors.shape}')
@@ -63,7 +63,7 @@ class Main:
 
         # Calculate Loss
         _, target_ids = self.tokenizer.encode_target()
-        target_ids = torch.tensor(target_ids, dtype=torch.long)
+        target_ids = torch.tensor(target_ids, dtype=torch.long).to(device=device)
         loss = self.loss.calulate_cross_entropy_loss_from_logits(logits, target_ids)
         print(f'The calculated loss is: {loss}')
 
@@ -130,6 +130,8 @@ class Main:
         return params
 
 if __name__ == '__main__':
+    print('starting code')
     model = Main()
     model.main()
+    print('training finished, showing top 10 predictions')
     model.show_top_10_predictions()

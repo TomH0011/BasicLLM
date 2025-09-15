@@ -1,7 +1,7 @@
 # Simpler Tokeniser, nothing like Charformer (american spellings :( )
 from transformers import AutoTokenizer
 import torch
-from config import (model_name, embedding_dim, text, tokenizer, vocab_size)
+from config import (model_name, embedding_dim, text, tokenizer, vocab_size, device)
 import numpy as np
 
 
@@ -48,7 +48,7 @@ class Embedding:
         self.last_ids = None
 
         # all possible embedding dims
-        self.W_e = torch.randn(self.vocab_size, self.embedding_dim, requires_grad=True)
+        self.W_e = torch.randn(self.vocab_size, self.embedding_dim, requires_grad=True, device=device)
 
     # fetches embedding vector for a given id
     def get_embedding_vector(self, ids):

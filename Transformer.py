@@ -1,7 +1,7 @@
 import math
 
 import torch
-from config import (embedding_dim, d_head, attn_heads, hidden_dimension)
+from config import (embedding_dim, d_head, attn_heads, hidden_dimension, device)
 
 class SelfAttention:
     def __init__(self, vec_E):
@@ -9,10 +9,10 @@ class SelfAttention:
         self.d_head = d_head
         self.attn_heads = attn_heads
 
-        self.W_Q = torch.randn(self.embedding_dim, self.d_head, requires_grad=True) * (1.0 / self.embedding_dim ** 0.5)
-        self.W_K = torch.randn(self.embedding_dim, self.d_head, requires_grad=True) * (1.0 / self.embedding_dim ** 0.5)
-        self.W_V = torch.randn(self.embedding_dim, self.d_head, requires_grad=True) * (1.0 / self.embedding_dim ** 0.5)
-        self.W_O = torch.randn(self.d_head, self.embedding_dim, requires_grad=True) * (1.0 / math.sqrt(self.d_head))
+        self.W_Q = torch.randn(self.embedding_dim, self.d_head, requires_grad=True, device=device) * (1.0 / self.embedding_dim ** 0.5)
+        self.W_K = torch.randn(self.embedding_dim, self.d_head, requires_grad=True, device=device) * (1.0 / self.embedding_dim ** 0.5)
+        self.W_V = torch.randn(self.embedding_dim, self.d_head, requires_grad=True, device=device) * (1.0 / self.embedding_dim ** 0.5)
+        self.W_O = torch.randn(self.d_head, self.embedding_dim, requires_grad=True, device=device) * (1.0 / math.sqrt(self.d_head))
 
         self.embedding_vectors = vec_E
 
@@ -75,10 +75,10 @@ class MLP:
         # Parameters (raw tensors, requires_grad not used because we compute grads manually)
         scale_up = 1.0 / (self.embedding_dim ** 0.5)
         scale_down = 1.0 / (self.hidden_dim ** 0.5)
-        self.W_up = torch.randn(self.embedding_dim, self.hidden_dim) * scale_up
-        self.W_down = torch.randn(self.hidden_dim, self.embedding_dim) * scale_down
-        self.b_up = torch.zeros(self.hidden_dim)
-        self.b_down = torch.zeros(self.embedding_dim)
+        self.W_up = torch.randn(self.embedding_dim, self.hidden_dim, device=device) * scale_up
+        self.W_down = torch.randn(self.hidden_dim, self.embedding_dim, device=device) * scale_down
+        self.b_up = torch.zeros(self.hidden_dim, device=device)
+        self.b_down = torch.zeros(self.embedding_dim, device=device)
 
         # initialize grads to zeros (same shape as params)
         self.W_up_grad = torch.zeros_like(self.W_up)
