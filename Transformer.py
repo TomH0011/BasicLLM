@@ -96,7 +96,7 @@ class MLP:
 
     def backward(self, grad_output):
         # grad_output: ∂L/∂output, shape [N, embedding_dim]
-        N = grad_output.shape[0]
+        # N = grad_output.shape[0]
 
         # grads for W_down and b_down
         grad_W_down = self.H.T @ grad_output         # [hidden, embedding_dim]
@@ -117,11 +117,11 @@ class MLP:
         grad_E = grad_Z_up @ self.W_up.T             # [N, embedding_dim]
 
         # store/accumulate parameter gradients (optionally average by N)
-        invN = 1.0 / float(N)
-        self.W_down_grad += grad_W_down * invN
-        self.b_down_grad += grad_b_down * invN
-        self.W_up_grad += grad_W_up * invN
-        self.b_up_grad += grad_b_up * invN
+        # invN = 1.0 / float(N)
+        self.W_down_grad += grad_W_down
+        self.b_down_grad += grad_b_down
+        self.W_up_grad += grad_W_up
+        self.b_up_grad += grad_b_up
 
         return grad_E
 
