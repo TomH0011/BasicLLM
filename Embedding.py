@@ -1,43 +1,71 @@
-# Simpler Tokeniser, nothing like Charformer (american spellings :( )
+# Fixed Embedding.py with proper memory management and token caching
+import gc
+import os
 from transformers import AutoTokenizer
 import torch
-from config import (model_name, embedding_dim, text, tokenizer, vocab_size, device)
+from config import (model_name, embedding_dim, text, tokenizer, vocab_size, device, tokenized_data_path)
 import numpy as np
 
 
 class Tokenizer:
-
     def __init__(self):
         self.tokenizer = tokenizer
-        self.text = text.strip()  # Remove white spaces around text
+        self.text = text.strip()
 
-    # Everything except the first word → target text
-    def shift_text_for_target(self):
-        words = self.text.split()
-        return " ".join(words[1:])
+    def encode_text(self):
+        """Encode the full text and return input_ids and target_ids properly aligned"""
 
-    # Everything except the last word → input text
-    def shift_text_for_input(self):
-        words = self.text.split()
-        return " ".join(words[:-1])
+        # Check if tokenized data already exists
+        if os.path.exists(tokenized_data_path):
+            print(f'Loading cached tokenized data from {tokenized_data_path}...')
+            try:
+                cached_data = torch.load(tokenized_data_path, map_location='cpu')
+                input_ids = cached_data['input_ids']
+                target_ids = cached_data['target_ids']
 
-    # Decoder
+                # Clear text from memory immediately
+                del self.text
+                gc.collect()
+
+                print('Cached tokenized data loaded successfully!')
+                return input_ids, target_ids
+
+            except Exception as e:
+                print(f'Error loading cached data: {e}')
+                print('Proceeding with fresh tokenization...')
+
+        # Fresh tokenization if no cache exists or cache failed to load
+        print('Starting to tokenize text, this may take a while...')
+        full_ids = self.tokenizer.encode(self.text)
+        print('Text tokenized!')
+
+        # Input: all tokens except the last one
+        input_ids = full_ids[:-1]
+        # Target: all tokens except the first one (shifted by 1)
+        target_ids = full_ids[1:]
+
+        # Save tokenized data for future use
+        print(f'Saving tokenized data to {tokenized_data_path}...')
+        try:
+            torch.save({
+                'input_ids': input_ids,
+                'target_ids': target_ids,
+                'vocab_size': self.tokenizer.vocab_size,
+                'model_name': model_name
+            }, tokenized_data_path)
+            print('Tokenized data saved successfully!')
+        except Exception as e:
+            print(f'Warning: Could not save tokenized data: {e}')
+
+        # Clear text and intermediate data from memory
+        del self.text, full_ids
+        gc.collect()
+
+        print('Text cleared from memory.')
+        return input_ids, target_ids
+
     def decode_word(self, token_id):
         return self.tokenizer.decode([token_id], skip_special_tokens=True)
-
-    # Encoder for inputs into transformer
-    def encode_input(self):
-        input_text = self.shift_text_for_input()
-        tokens = self.tokenizer(input_text, return_tensors="pt")
-        ids = self.tokenizer.encode(input_text)
-        return tokens, ids
-
-    # Encoder for target tokens, for loss calculation
-    def encode_target(self):
-        target_text = self.shift_text_for_target()
-        tokens = self.tokenizer(target_text, return_tensors="pt")
-        ids = self.tokenizer.encode(target_text)
-        return tokens, ids
 
 
 class Embedding:
@@ -47,24 +75,25 @@ class Embedding:
         self.embedding_dim = embedding_dim
         self.last_ids = None
 
-        # all possible embedding dims
-        self.W_e = torch.randn(self.vocab_size, self.embedding_dim, requires_grad=True, device=device)
+        # Initialize embedding matrix - no requires_grad for manual gradients
+        self.W_e = torch.randn(self.vocab_size, self.embedding_dim, device=device) * 0.02
+        self.W_e.grad = None
 
-    # fetches embedding vector for a given id
     def get_embedding_vector(self, ids):
-        # Always convert to list if it's a single int
-        if isinstance(ids, int):
-            self.last_ids = [ids]
-        else:
-            self.last_ids = list(ids)  # make sure it's a list
+        """Fetch embedding vectors for given token ids"""
+        # Store the entire tensor for the backward pass
+        self.last_ids = ids
+        # Perform the vectorised lookup
         return self.W_e[ids]
 
     def backward(self, grad_embeddings):
+        """Accumulate gradients for embedding matrix"""
+        # Detach to prevent graph buildup
+        grad_embeddings = grad_embeddings.detach()
+
         if self.W_e.grad is None:
             self.W_e.grad = torch.zeros_like(self.W_e)
-        # accumulate gradients into W_e
-        for i, idx in enumerate(self.last_ids):
-            # Update corresponding row in W_e
-            if self.W_e.grad is None:
-                self.W_e.grad = torch.zeros_like(self.W_e)
-            self.W_e.grad[idx] += grad_embeddings[i]
+
+        # Use index_add_ for efficient gradient accumulation
+        # This is more memory efficient than a loop
+        self.W_e.grad.index_add_(0, self.last_ids, grad_embeddings)

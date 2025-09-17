@@ -1,7 +1,7 @@
 import math
-
 import torch
 from config import (embedding_dim, d_head, attn_heads, hidden_dimension, device)
+
 
 class SelfAttention:
     def __init__(self, vec_E):
@@ -9,10 +9,17 @@ class SelfAttention:
         self.d_head = d_head
         self.attn_heads = attn_heads
 
-        self.W_Q = torch.randn(self.embedding_dim, self.d_head, requires_grad=True, device=device) * (1.0 / self.embedding_dim ** 0.5)
-        self.W_K = torch.randn(self.embedding_dim, self.d_head, requires_grad=True, device=device) * (1.0 / self.embedding_dim ** 0.5)
-        self.W_V = torch.randn(self.embedding_dim, self.d_head, requires_grad=True, device=device) * (1.0 / self.embedding_dim ** 0.5)
-        self.W_O = torch.randn(self.d_head, self.embedding_dim, requires_grad=True, device=device) * (1.0 / math.sqrt(self.d_head))
+        # Don't use requires_grad=True for manual gradient computation
+        self.W_Q = torch.randn(self.embedding_dim, self.d_head, device=device) * (1.0 / self.embedding_dim ** 0.5)
+        self.W_K = torch.randn(self.embedding_dim, self.d_head, device=device) * (1.0 / self.embedding_dim ** 0.5)
+        self.W_V = torch.randn(self.embedding_dim, self.d_head, device=device) * (1.0 / self.embedding_dim ** 0.5)
+        self.W_O = torch.randn(self.d_head, self.embedding_dim, device=device) * (1.0 / math.sqrt(self.d_head))
+
+        # Initialize gradients
+        self.W_Q.grad = None
+        self.W_K.grad = None
+        self.W_V.grad = None
+        self.W_O.grad = None
 
         self.embedding_vectors = vec_E
 
@@ -32,10 +39,17 @@ class SelfAttention:
         """
         grad_output: ∂L/∂output, shape (seq_len, embedding_dim)
         """
+        # Detach grad_output to prevent graph buildup
+        grad_output = grad_output.detach()
+
         # Through W_O
-        grad_W_O = self.attn_out.T @ grad_output
-        self.W_O.grad = grad_W_O if self.W_O.grad is None else self.W_O.grad + grad_W_O
-        grad_attn_out = grad_output @ self.W_O.T  # (seq_len, d_head)
+        grad_W_O = (self.attn_out.T @ grad_output).detach()
+        if self.W_O.grad is None:
+            self.W_O.grad = grad_W_O
+        else:
+            self.W_O.grad = self.W_O.grad.detach() + grad_W_O
+
+        grad_attn_out = grad_output @ self.W_O.T
 
         # Through attn_out = A @ V
         grad_A = grad_attn_out @ self.V.T
@@ -49,22 +63,33 @@ class SelfAttention:
         grad_Q = grad_scores @ self.K * scale
         grad_K = grad_scores.T @ self.Q * scale
 
-        # Through Q, K, V linear projections
-        grad_W_Q = self.embedding_vectors.T @ grad_Q
-        grad_W_K = self.embedding_vectors.T @ grad_K
-        grad_W_V = self.embedding_vectors.T @ grad_V
+        # Through Q, K, V linear projections - DETACH before accumulating
+        grad_W_Q = (self.embedding_vectors.T @ grad_Q).detach()
+        grad_W_K = (self.embedding_vectors.T @ grad_K).detach()
+        grad_W_V = (self.embedding_vectors.T @ grad_V).detach()
 
-        self.W_Q.grad = grad_W_Q if self.W_Q.grad is None else self.W_Q.grad + grad_W_Q
-        self.W_K.grad = grad_W_K if self.W_K.grad is None else self.W_K.grad + grad_W_K
-        self.W_V.grad = grad_W_V if self.W_V.grad is None else self.W_V.grad + grad_W_V
+        if self.W_Q.grad is None:
+            self.W_Q.grad = grad_W_Q
+        else:
+            self.W_Q.grad = self.W_Q.grad.detach() + grad_W_Q
+
+        if self.W_K.grad is None:
+            self.W_K.grad = grad_W_K
+        else:
+            self.W_K.grad = self.W_K.grad.detach() + grad_W_K
+
+        if self.W_V.grad is None:
+            self.W_V.grad = grad_W_V
+        else:
+            self.W_V.grad = self.W_V.grad.detach() + grad_W_V
 
         # Gradients wrt input embeddings
         grad_E_Q = grad_Q @ self.W_Q.T
         grad_E_K = grad_K @ self.W_K.T
         grad_E_V = grad_V @ self.W_V.T
-
         grad_E = grad_E_Q + grad_E_K + grad_E_V
-        return grad_E
+
+        return grad_E.detach()
 
 
 class MLP:
@@ -72,7 +97,7 @@ class MLP:
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dimension
 
-        # Parameters (raw tensors, requires_grad not used because we compute grads manually)
+        # Parameters
         scale_up = 1.0 / (self.embedding_dim ** 0.5)
         scale_down = 1.0 / (self.hidden_dim ** 0.5)
         self.W_up = torch.randn(self.embedding_dim, self.hidden_dim, device=device) * scale_up
@@ -80,49 +105,60 @@ class MLP:
         self.b_up = torch.zeros(self.hidden_dim, device=device)
         self.b_down = torch.zeros(self.embedding_dim, device=device)
 
-        # initialize grads to zeros (same shape as params)
-        self.W_up_grad = torch.zeros_like(self.W_up)
-        self.W_down_grad = torch.zeros_like(self.W_down)
-        self.b_up_grad = torch.zeros_like(self.b_up)
-        self.b_down_grad = torch.zeros_like(self.b_down)
+        # Initialize gradients as attributes (not separate tensors)
+        self.W_up.grad = None
+        self.W_down.grad = None
+        self.b_up.grad = None
+        self.b_down.grad = None
 
     def forward(self, embedding_vectors):
-        # embedding_vectors: [N, embedding_dim]  (N = seq_len or batch_size)
-        self.E = embedding_vectors                  # save input for backward
-        self.Z_up = embedding_vectors @ self.W_up + self.b_up  # [N, hidden]
-        self.H = torch.relu(self.Z_up)               # [N, hidden]
-        mlp_output = self.H @ self.W_down + self.b_down       # [N, embedding_dim]
+        self.E = embedding_vectors
+        self.Z_up = embedding_vectors @ self.W_up + self.b_up
+        self.H = torch.relu(self.Z_up)
+        mlp_output = self.H @ self.W_down + self.b_down
         return mlp_output
 
     def backward(self, grad_output):
-        # grad_output: ∂L/∂output, shape [N, embedding_dim]
-        # N = grad_output.shape[0]
+        # Detach to prevent graph buildup
+        grad_output = grad_output.detach()
 
-        # grads for W_down and b_down
-        grad_W_down = self.H.T @ grad_output         # [hidden, embedding_dim]
-        grad_b_down = grad_output.sum(dim=0)         # [embedding_dim]
+        # Grads for W_down and b_down
+        grad_W_down = (self.H.T @ grad_output).detach()
+        grad_b_down = grad_output.sum(dim=0).detach()
 
-        # backprop into H
-        grad_H = grad_output @ self.W_down.T         # [N, hidden]
+        # Backprop into H
+        grad_H = grad_output @ self.W_down.T
 
-        # backprop through ReLU (Z_up > 0)
-        relu_mask = (self.Z_up > 0).to(dtype=grad_H.dtype)  # [N, hidden]
-        grad_Z_up = grad_H * relu_mask                # [N, hidden]
+        # Backprop through ReLU
+        relu_mask = (self.Z_up > 0).to(dtype=grad_H.dtype)
+        grad_Z_up = grad_H * relu_mask
 
-        # grads for W_up and b_up
-        grad_W_up = self.E.T @ grad_Z_up             # [embedding_dim, hidden]
-        grad_b_up = grad_Z_up.sum(dim=0)             # [hidden]
+        # Grads for W_up and b_up
+        grad_W_up = (self.E.T @ grad_Z_up).detach()
+        grad_b_up = grad_Z_up.sum(dim=0).detach()
 
-        # gradient wrt input E (to pass to previous layer)
-        grad_E = grad_Z_up @ self.W_up.T             # [N, embedding_dim]
+        # Gradient wrt input
+        grad_E = grad_Z_up @ self.W_up.T
 
-        # store/accumulate parameter gradients (optionally average by N)
-        # invN = 1.0 / float(N)
-        self.W_down_grad += grad_W_down
-        self.b_down_grad += grad_b_down
-        self.W_up_grad += grad_W_up
-        self.b_up_grad += grad_b_up
+        # Accumulate gradients - use detached gradients
+        if self.W_down.grad is None:
+            self.W_down.grad = grad_W_down
+        else:
+            self.W_down.grad = self.W_down.grad.detach() + grad_W_down
 
-        return grad_E
+        if self.b_down.grad is None:
+            self.b_down.grad = grad_b_down
+        else:
+            self.b_down.grad = self.b_down.grad.detach() + grad_b_down
 
+        if self.W_up.grad is None:
+            self.W_up.grad = grad_W_up
+        else:
+            self.W_up.grad = self.W_up.grad.detach() + grad_W_up
 
+        if self.b_up.grad is None:
+            self.b_up.grad = grad_b_up
+        else:
+            self.b_up.grad = self.b_up.grad.detach() + grad_b_up
+
+        return grad_E.detach()
